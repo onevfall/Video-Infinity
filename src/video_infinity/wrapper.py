@@ -1,6 +1,6 @@
 from ..tools import save_generation, GlobalState, DistController
 
-from .plugins import torch, ModulePlugin, UNetPlugin, GroupNormPlugin, ConvLayerPlugin, AttentionPlugin, Conv3DPligin, dist
+from .plugins import torch, ModulePlugin, UNetPlugin, GroupNormPlugin, ConvLayerPlugin, AttentionPlugin,  Conv3DPligin, dist ,MySpatialAttentionPlugin
 
 class DistWrapper(object):
     def __init__(self, pipe, dist_controller: DistController, config) -> None:
@@ -29,14 +29,15 @@ class DistWrapper(object):
     def plugin_mount(self):
         self.plugins = {}
         self.unet_plugin_mount()
+        
+        # self.my_spatial_attn_plugin_mount()
         self.attn_plugin_mount()
-
-
-        # self.group_norm_plugin_mount()
-        # self.conv_3d_plugin_mount()
+        
+        self.group_norm_plugin_mount()
+        self.conv_3d_plugin_mount()
 
         # Conv3d and Conv layer can only be used one at a time
-        self.conv_plugin_mount()
+        #self.conv_plugin_mount()
 
     def group_norm_plugin_mount(self):
         self.plugins['group_norm'] = {}
@@ -81,18 +82,53 @@ class DistWrapper(object):
         for module in self.pipe.unet.named_modules():
             if ('temp_' in module[0] or 'transformer_in' in module[0]) and module[1].__class__.__name__ == 'Attention':
                 attns.append(module[1])
+                # print(f"module[0]: {module[0]}")
+                # print(f"module[1].__class__.__name__: {module[1].__class__.__name__}")
         if self.dist_controller.is_master:
             print(f'Found {len(attns)} attns')
         for i, attn in enumerate(attns):
             plugin_id = 'attn', i
             self.plugins['attn'][plugin_id] = AttentionPlugin(attn, plugin_id, self.global_state)
-
+            
+    def my_spatial_attn_plugin_mount(self):
+        self.plugins['attn'] = {}
+        attns = []
+        for module in self.pipe.unet.named_modules():
+            #只修改attn1而不修改attn2，因为attn2是对text的cross attention
+            if ('temp_' not in module[0] and 'attn1' in module[0]) and module[1].__class__.__name__ == 'Attention':
+                attns.append(module[1])
+                # print(f"module[0]: {module[0]}")
+                # print(f"module[1]: {module[1]}")
+                # print(f"module[1].__class__.__name__: {module[1].__class__.__name__}")
+        if self.dist_controller.is_master:
+            print(f'Found {len(attns)} attns')
+        for i, attn in enumerate(attns):
+            plugin_id = 'attn', i
+            self.plugins['attn'][plugin_id] = MySpatialAttentionPlugin(attn, plugin_id, self.global_state)
+            
     def unet_plugin_mount(self):
         self.plugins['unet'] = UNetPlugin(
             self.pipe.unet,
             ('unet', 0),
             self.global_state
         )
+        # def print_module_structure_with_names(module, prefix='', file=None):
+        #     for name, sub_module in module.named_children():
+        #         line = f'{prefix}{name}: {sub_module.__class__.__name__}\n'
+        #         if file:
+        #             file.write(line)
+        #         else:
+        #             print(line, end='')
+        #         print_module_structure_with_names(sub_module, prefix + '    ', file)
+
+        # # 假设你的模型是 self.pipe.unet
+        # model = self.pipe.unet
+
+        # # 打开一个文件用于写入
+        # with open('unet_structure.txt', 'w') as f:
+        #     # 打印模型结构到文件
+        #     print_module_structure_with_names(model, file=f)
+
     
     def inference(
         self,
@@ -148,7 +184,7 @@ class DistWrapper(object):
         all_frames = [
             torch.zeros_like(video_frames, dtype=torch.float16) for _ in range(self.dist_controller.world_size)
         ] if self.dist_controller.is_master else None
-        dist.gather(video_frames, all_frames, dst=0)
+        dist.gather(video_frames, all_frames, dst=0)  #将每个gpu执行的video_frames转给all_frames
         if self.dist_controller.is_master:
             all_frames = torch.cat(all_frames, dim=0).cpu().numpy()
             save_generation(

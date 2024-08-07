@@ -4,25 +4,17 @@
         0,
         1,
         2,
-        3,
-        4,
-        5,
-        6,
-        7
+        3
     ],
     "seed": 123,
     "master_port": 29516,
     "base_path": "./exp",
     "pipe_configs": {
         "prompts": [
-            "[Ukiyo-e style] A black Akita puppy stands alone under the eaves of a traditional Japanese house, shivering in the rain and looking scared.",
-            "[Ukiyo-e style] A girl in a blue kimono comforts a shivering black Akita puppy during a rainy walk through a stone-paved village.",
-            "[Ukiyo-e style] A girl in a blue kimono brings an black Akita puppy into her warm home, a traditional wooden Japanese house with sliding doors.",
-            "[Ukiyo-e style] A girl in a blue kimono plays with her energetic black Akita puppy in the garden of a traditional Japanese house, throwing a woven ball.",
-            "[Ukiyo-e style] A teenager in a blue kimono jogs with her black Akita through a park filled with cherry blossom trees and ancient stone lanterns.",
-            "[Ukiyo-e style] A teenage girl in a blue kimono relaxes in a field of wildflowers, reading a scroll while her black Akita rests beside him under a cherry tree.",
-            "[Ukiyo-e style] A young girl in a blue kimono celebrates her coming-of-age ceremony with her black Akita, surrounded by festive lanterns and banners.",
-            "[Ukiyo-e style] A girl in a blue kimono and her loyal black Akita enjoy a serene sunset walk along the beach, with the silhouette of Mount Fuji in the distance."
+            "A teddy bear diving in the ocean",
+            "A teddy bear emerges from the water",
+            "A teddy bear walks on the beach",
+            "A teddy bear lights campfire on the beach"
         ],
         "steps": 30,
         "guidance_scale": 12,

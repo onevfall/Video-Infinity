@@ -6,7 +6,7 @@
     "base_path": "./exp",
     "pipe_configs":{
         "prompts": [
-            "A beagle wearing diving goggles swimming in the ocean while the camera is moving, coral reefs in the background."
+            "A man in a cozy kitchen holds a steaming cup of coffee, savoring each sip as he looks out the window. He sets the cup down on the counter, walks across the room, and reaches for the door handle. With a gentle push, he opens the door and steps outside into the fresh morning air"
         ],
         "steps": 30,
         "guidance_scale": 12,
