@@ -263,30 +263,25 @@ class MySpatialAttentionPlugin(ModulePlugin):
                 left_context = torch.zeros_like(share_to_left).to(h.device, non_blocking=True)
         torch.cuda.synchronize()
 
-        h_with_context = torch.cat([left_context, h, right_context], dim=1)
-        return h_with_context, padding
-    
-    def get_topk(self, q, k, v, top_k=None):
-        # q = (b, t, hw, c)
+        # h_with_context = torch.cat([h, left_context, right_context], dim=1)
+        return h, left_context, right_context, padding
+    def get_topk_x(self, x, top_k=None):
+        # x = (b, t, hw, c)
         top_k = self.top_k if top_k is None else top_k
         share_num = int(max(top_k // self.world_size, 0))
 
-        stride = max(q.shape[1] // share_num, 1) if share_num else 1000000
+        stride = max(x.shape[1] // share_num, 1) if share_num else 1000000
 
-        topk_indices = torch.arange(0, q.shape[1], stride, device=q.device)
+        topk_indices = torch.arange(0, x.shape[1], stride, device=x.device)
 
-        k_to_share, v_to_share =  k[:, topk_indices], v[:, topk_indices]
+        x_to_share = x[:, topk_indices]
+        gather_x = [torch.zeros_like(x_to_share) for _ in range(self.world_size)]
 
-        gather_k = [torch.zeros_like(k_to_share) for _ in range(self.world_size)]
-        gather_v = [torch.zeros_like(v_to_share) for _ in range(self.world_size)]
+        dist.all_gather(gather_x, x_to_share)
 
-        dist.all_gather(gather_k, k_to_share)
-        dist.all_gather(gather_v, v_to_share)
+        gather_x = torch.cat(gather_x, dim=1)[:, :top_k]
 
-        gather_k = torch.cat(gather_k, dim=1)[:, :top_k]
-        gather_v = torch.cat(gather_v, dim=1)[:, :top_k]
-
-        return gather_k, gather_v
+        return gather_x
 
     def gather_context(self, h):
         self.temporal_n = h.shape[1]
@@ -300,80 +295,69 @@ class MySpatialAttentionPlugin(ModulePlugin):
             context=encoder_hidden_states
 
             # print(f"x shape: {x.shape}")
-            temporal_n = 24  #此处只能暂时hard code做test了
+            temporal_n = 16  #此处只能暂时hard code做test了
+
+            # 此处修改的是attn1，就是self-attention。初始就是x （bt, hw, c），c含有module.heads
+            # if context is None:
+            #     print("context is None")
             
-            q = module.to_q(x)
+            x = x.reshape(-1, temporal_n, x.shape[1], x.shape[2])
+            b, temporal_n, hw, c = x.shape
+            global_x = self.get_topk_x(x)
+            num_global = global_x.shape[1]
+            _, left_context, right_context, padding = self.pad_context(x)
+            # x                          —— (b, temporal_n, hw, c)
+            # left_context/right_context  —— (b, padding, hw, c)
+            # global_x                    —— (b, num_global, hw, c)
             
-            context = x if context is None else context
-            k, v = module.to_k(context), module.to_v(context)
-            # print(f"original k.shape:{k.shape}")
+            # 按AnimateAnyone操作，只是这种方式会有很长的空间计算——(1+num_global+2*padding)*hw
+            global_x_repeated = global_x.unsqueeze(1).repeat(1, temporal_n, 1, 1, 1)
+            global_x_reshaped = global_x_repeated.view(b, temporal_n, num_global * hw, c)
             
-            bt, hw, c = q.shape
+            left_context_repeated = left_context.unsqueeze(1).repeat(1, temporal_n, 1, 1, 1)
+            left_context_reshaped = left_context_repeated.view(b, temporal_n, padding * hw, c)
             
-            b = bt//temporal_n
-            # print(f"Before q.shape:{q.shape}, b:{b}")
-            # multi-head
+            right_context_repeated = right_context.unsqueeze(1).repeat(1, temporal_n, 1, 1, 1)
+            right_context_reshaped = right_context_repeated.view(b, temporal_n, padding * hw, c)
+            
+            padded_x = torch.cat([x, left_context_reshaped, right_context_reshaped, global_x_reshaped], 
+                                 dim=2)
+            padded_x = padded_x.reshape(b*temporal_n, -1, c)  
+            
+            # 尝试极限测试显存
+            # shape: [b*temporal_n, (1 + 2*padding + num_global)*hw, c]
+            clip_num = 2
+            # not padding
+            if self.rank == 0:  
+                 padded_x = padded_x[:, :hw]
+            else:
+                padded_x = padded_x[:, :clip_num*hw]
+            
+            # 此时变回（bt, hw, c），c含有module.heads
+            context = padded_x if context is None else context
+            q = module.to_q(padded_x)
+            k, v = module.to_k(context), module.to_v(context)            
+
+            b, _, _ = q.shape
             q, k, v = map(
-                lambda g: g.unsqueeze(3).reshape(bt, g.shape[1], module.heads, -1).permute(0, 2, 1, 3).reshape(bt*module.heads, g.shape[1], -1),
+                lambda t: t.unsqueeze(3).reshape(b, t.shape[1], module.heads, -1).permute(0, 2, 1, 3).reshape(b*module.heads, t.shape[1], -1),
                 (q, k, v),
             )
-            # print(f"Here q.shape:{q.shape}")
-            # 分割出temporal_n
-            q, k, v = map(
-                lambda g: g.reshape(b*module.heads, temporal_n, g.shape[1], -1),
-                (q, k, v),
-            )
-            # 
-            global_k, global_v = self.get_topk(q, k, v)
-            num_global = global_k.shape[1]
-
-            padded_k, _ = self.pad_context(k)
-            padded_v, padding = self.pad_context(v)
-
-            padded_k = torch.cat([padded_k, global_k], dim=1)
-            padded_v = torch.cat([padded_v, global_v], dim=1)
-            
-            # print(f"After: padded_k.shape——{padded_k.shape}")
-            # print(f"After: q.shape——{q.shape}")
-            
-            #b里含有multi-head数
-            b, temporal_n, hw, c = q.shape
-            # print(f"q.shape: {q.shape}")
-            # print(f"padded_k.shape: {padded_k.shape}")
-            seq_len_q = hw
-            seq_len_k = hw + (hw * (2 * padding + num_global)) // temporal_n
-
-            # 计算reshape所需的总元素数量
-            required_elements_k = b * temporal_n * seq_len_k * c
-
-            # 将padded_k和padded_v展平为一维，然后裁剪到所需的大小
-            flattened_padded_k = padded_k.reshape(-1)[:required_elements_k]
-            flattened_padded_v = padded_v.reshape(-1)[:required_elements_k]
-            # print(f" padded_v.shape——{padded_v.shape}")
-            # 重新reshape到目标形状
-            padded_k = flattened_padded_k.reshape(b * temporal_n, seq_len_k, c)
-            padded_v = flattened_padded_v.reshape(b * temporal_n, seq_len_k, c)
-
-            # reshape q
-            q = q.reshape(b * temporal_n, seq_len_q, c)
-                    
-            # 去掉了mask
             out = my_attention(
-                q, padded_k, padded_v,
-                dropout_p=0.0, is_causal=False,
+                q, k, v,
+                attn_mask=None, dropout_p=0.0, is_causal=False,
                 scale=self.attn_scale,
                 token_num_scale=self.token_num_scale
             )
-
-            out = (
-                out.reshape(bt*module.heads, hw, -1)
-            )
+            # print(f"Max allocated memory: {torch.cuda.max_memory_allocated(q.device) / (1024 ** 2):.2f} MiB")
+            # print(f"Max reserved memory: {torch.cuda.max_memory_reserved(q.device) / (1024 ** 2):.2f} MiB")
             
             out = (
-                out.unsqueeze(0).reshape(bt, module.heads, out.shape[1], -1).permute(0, 2, 1, 3)
-                .reshape(bt, out.shape[1], -1)
+                out.unsqueeze(0).reshape(b, module.heads, out.shape[1], -1).permute(0, 2, 1, 3)
+                .reshape(b, out.shape[1], -1)
             )
-
+            out = out[:,:hw]  #只裁剪这一个片段
+            
             # linear proj
             hidden_states = module.to_out[0](out)
             hidden_states = module.to_out[1](hidden_states)
@@ -525,7 +509,12 @@ class AttentionPlugin(ModulePlugin):
             #     scale=self.attn_scale,
             #     token_num_scale=self.token_num_scale
             # )
-
+            
+            # 输出当前显存使用情况
+            # print(f"Allocated memory: {torch.cuda.memory_allocated(q.device) / (1024 ** 2):.2f} MiB")
+            # print(f"Reserved memory: {torch.cuda.memory_reserved(q.device) / (1024 ** 2):.2f} MiB")
+            # print(f"Max allocated memory: {torch.cuda.max_memory_allocated(q.device) / (1024 ** 2):.2f} MiB")
+            # print(f"Max reserved memory: {torch.cuda.max_memory_reserved(q.device) / (1024 ** 2):.2f} MiB")
 
             out = (
                 out.unsqueeze(0).reshape(b, module.heads, out.shape[1], -1).permute(0, 2, 1, 3)

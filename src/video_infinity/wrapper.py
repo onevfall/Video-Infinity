@@ -30,7 +30,7 @@ class DistWrapper(object):
         self.plugins = {}
         self.unet_plugin_mount()
         
-        # self.my_spatial_attn_plugin_mount()
+        self.my_spatial_attn_plugin_mount()
         self.attn_plugin_mount()
         
         self.group_norm_plugin_mount()
