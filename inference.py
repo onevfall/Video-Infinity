@@ -16,6 +16,7 @@ def parse_args():
     import argparse
     parser = argparse.ArgumentParser(description="Video Infinity Inference")
     parser.add_argument("--config", type=str)
+    parser.add_argument("--gpu_ids", type=str, help="Comma separated GPU IDs")
     args = parser.parse_args()
     return args
 
@@ -69,10 +70,31 @@ def main(config):
     for p in processes:
         p.join()
 
+def process_config(config, args):  # 添加 args 参数
+    # Get prompts from environment variable
+    prompt_group = os.getenv('PROMPT_GROUP')
+    if prompt_group:
+        # Split prompts by semicolon and clean up whitespace
+        prompts = [p.strip() for p in prompt_group.split(';')]
+        config['pipe_configs']['prompts'] = prompts
+    
+    # Get GPU IDs from command line arguments
+    if args.gpu_ids:
+        config['devices'] = [int(x) for x in args.gpu_ids.split(',')]
+    
+    return config
+
 if __name__ == "__main__":
     mp.set_start_method("spawn")
 
-    with open(parse_args().config, "r") as f:
+    # 先解析命令行参数
+    args = parse_args()
+    
+    # 加载配置文件
+    with open(args.config, "r") as f:
         config = json.load(f)
+    
+    # 处理配置时传入 args
+    config = process_config(config, args)
     
     main(config)

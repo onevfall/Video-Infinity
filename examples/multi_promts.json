@@ -1,12 +1,6 @@
 {
     "dtype": "torch.float16",
     "devices": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
         6,
         7
     ],
@@ -15,15 +9,9 @@
     "base_path": "./exp",
     "pipe_configs": {
         "prompts": [
-            "[Ukiyo-e style] A black Akita puppy stands alone under the eaves of a traditional Japanese house, shivering in the rain and looking scared.",
-            "[Ukiyo-e style] A girl in a blue kimono comforts a shivering black Akita puppy during a rainy walk through a stone-paved village.",
-            "[Ukiyo-e style] A girl in a blue kimono brings an black Akita puppy into her warm home, a traditional wooden Japanese house with sliding doors.",
-            "[Ukiyo-e style] A girl in a blue kimono plays with her energetic black Akita puppy in the garden of a traditional Japanese house, throwing a woven ball.",
-            "[Ukiyo-e style] A teenager in a blue kimono jogs with her black Akita through a park filled with cherry blossom trees and ancient stone lanterns.",
-            "[Ukiyo-e style] A teenage girl in a blue kimono relaxes in a field of wildflowers, reading a scroll while her black Akita rests beside him under a cherry tree.",
-            "[Ukiyo-e style] A young girl in a blue kimono celebrates her coming-of-age ceremony with her black Akita, surrounded by festive lanterns and banners.",
-            "[Ukiyo-e style] A girl in a blue kimono and her loyal black Akita enjoy a serene sunset walk along the beach, with the silhouette of Mount Fuji in the distance."
-        ],
+            "A bustling boulevard is packed with people strolling in every direction, their footsteps blending with the hum of city life. The sidewalks are filled with families, tourists, and locals, creating a lively, energetic atmosphere. Cars crawl through the traffic, honking occasionally as bicycles weave between them. The trees lining the boulevard cast soft shadows, but the sunlight breaks through, illuminating the vibrant colors of store signs and street vendors. The sound of conversations, laughter, and occasional music fills the air, as the camera captures the constant motion of the crowded street.",
+            "A quiet boulevard, nearly empty of pedestrians, stretches out under the warm sunlight. Only a few people wander along the wide sidewalks, their footsteps echoing softly in the calm air. Cars move freely, with no traffic to slow them down, and the occasional cyclist passes by with ease. The trees lining the boulevard sway gently in the breeze, their shadows stretching across the quiet street. The stores and street vendors stand open but relatively undisturbed, and the peaceful atmosphere is a stark contrast to the usual hustle, as the camera glides along the nearly deserted boulevard."
+            ],
         "steps": 30,
         "guidance_scale": 12,
         "fps": 24,
